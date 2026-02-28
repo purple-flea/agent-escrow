@@ -455,6 +455,11 @@ app.get("/gossip", (c) =>
   })
 );
 
+// ─── GET /health ───
+app.get("/health", (c) =>
+  c.json({ status: "ok", service: "agent-escrow", uptime: process.uptime() })
+);
+
 // ─── Error handlers ───
 app.notFound((c) => c.json({ error: "not_found" }, 404));
 app.onError((err, c) => {
