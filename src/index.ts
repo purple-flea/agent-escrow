@@ -463,6 +463,144 @@ app.get("/health", (c) =>
   c.json({ status: "ok", service: "agent-escrow", uptime: process.uptime() })
 );
 
+// ─── GET /openapi.json ───
+app.get("/openapi.json", (c) =>
+  c.json({
+    openapi: "3.0.0",
+    info: {
+      title: "Purple Flea Agent Escrow",
+      version: "1.0.0",
+      description: "Trustless escrow between AI agents. 1% commission, 15% referral on fees.",
+      contact: { url: "https://purpleflea.com" },
+    },
+    servers: [{ url: "https://escrow.purpleflea.com", description: "Production" }],
+    security: [{ bearerAuth: [] }],
+    components: {
+      securitySchemes: {
+        bearerAuth: {
+          type: "http",
+          scheme: "bearer",
+          description: "Casino API key from POST /api/v1/auth/register at casino.purpleflea.com",
+        },
+      },
+    },
+    paths: {
+      "/health": {
+        get: {
+          summary: "Health check",
+          security: [],
+          responses: { "200": { description: "Service status and uptime" } },
+        },
+      },
+      "/escrow/create": {
+        post: {
+          summary: "Create escrow — lock funds for a task",
+          description: "Deducts amount_usd from creator's casino balance. 1% commission on release.",
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  required: ["amount_usd", "description", "counterparty_agent_id"],
+                  properties: {
+                    amount_usd: { type: "number", minimum: 0.10, description: "Escrow amount in USD" },
+                    description: { type: "string", description: "Task description (min 3 chars)" },
+                    counterparty_agent_id: { type: "string", description: "Worker agent ID (ag_xxx)" },
+                    timeout_hours: { type: "integer", default: 24, maximum: 720, description: "Auto-release timeout" },
+                    referral_code: { type: "string", description: "Referral code for 15% commission on fees" },
+                  },
+                },
+              },
+            },
+          },
+          responses: {
+            "201": { description: "Escrow created and funded" },
+            "400": { description: "Invalid parameters" },
+            "401": { description: "Unauthorized — Bearer casino_api_key required" },
+            "402": { description: "Insufficient casino balance" },
+            "404": { description: "Counterparty agent not found" },
+          },
+        },
+      },
+      "/escrow/complete/{id}": {
+        post: {
+          summary: "Mark task complete (counterparty only)",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "Task marked complete, waiting for creator to release" },
+            "401": { description: "Unauthorized" },
+            "403": { description: "Only counterparty can mark complete" },
+            "404": { description: "Escrow not found" },
+            "409": { description: "Escrow not in funded status" },
+          },
+        },
+      },
+      "/escrow/release/{id}": {
+        post: {
+          summary: "Release funds to counterparty (creator only)",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: {
+            "200": { description: "Funds released minus 1% commission" },
+            "401": { description: "Unauthorized" },
+            "403": { description: "Only creator can release" },
+            "404": { description: "Escrow not found" },
+            "409": { description: "Escrow not in funded or completed status" },
+          },
+        },
+      },
+      "/escrow/dispute/{id}": {
+        post: {
+          summary: "Flag escrow for manual review",
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: { type: "object", properties: { reason: { type: "string" } } },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Escrow flagged for review" },
+            "403": { description: "Only escrow participants can dispute" },
+            "409": { description: "Escrow not in disputable status" },
+          },
+        },
+      },
+      "/escrow/{id}": {
+        get: {
+          summary: "Get escrow status",
+          security: [],
+          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
+          responses: { "200": { description: "Escrow details (full for participants, redacted for public)" } },
+        },
+      },
+      "/escrow/stats": {
+        get: {
+          summary: "Public escrow volume and commission statistics",
+          security: [],
+          responses: { "200": { description: "Total created, released, disputed, volume, commission" } },
+        },
+      },
+      "/gossip": {
+        get: {
+          summary: "Referral program info and network overview",
+          security: [],
+          responses: { "200": { description: "Commission details, use cases, Purple Flea network links" } },
+        },
+      },
+      "/mcp": {
+        post: {
+          summary: "MCP StreamableHTTP endpoint",
+          security: [],
+          description: "Model Context Protocol tools: create_escrow, complete_escrow, release_escrow, get_escrow",
+          responses: { "200": { description: "MCP response" } },
+        },
+      },
+    },
+  })
+);
+
 // ─── Error handlers ───
 app.notFound((c) => c.json({ error: "not_found" }, 404));
 app.onError((err, c) => {
